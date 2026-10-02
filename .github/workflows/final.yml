@@ -25,6 +25,9 @@ jobs:
       - name: Apply autosave + hardening patches
         run: python3 apply_patches_github.py
 
+      - name: Apply Auto Edit wiring
+        run: python3 apply_autoedit_wiring.py
+
       - name: Apply release build tweaks
         run: python3 apply_build_tweaks.py
 
