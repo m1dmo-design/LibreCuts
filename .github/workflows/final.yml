@@ -71,6 +71,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -92,27 +95,4 @@ jobs:
           api-level: 30
           arch: x86_64
           disable-animations: true
-          script: |
-            set -x
-            APK=$(find "$GITHUB_WORKSPACE" -name "*-x86_64-release.apk" | head -1)
-            if [ -z "$APK" ]; then APK=$(find "$GITHUB_WORKSPACE" -name "*.apk" | head -1); fi
-            echo "APK=$APK"
-            ls -la "$APK"
-            adb wait-for-device
-            adb shell getprop ro.build.version.sdk
-            echo "--- install ---"
-            adb install -r -g "$APK" || exit 2
-            echo "--- launch (wait) ---"
-            adb shell am start -W -n com.tharunbirla.librecuts/.MainActivity || exit 3
-            sleep 15
-            echo "--- crash buffer after launch ---"
-            adb shell "logcat -d -b crash" | tail -60
-            echo "--- monkey stress ---"
-            adb shell monkey -p com.tharunbirla.librecuts --throttle 150 -v 5000
-            MONKEY_EXIT=$?
-            echo "MONKEY_EXIT=$MONKEY_EXIT"
-            echo "--- crash buffer after stress ---"
-            adb shell "logcat -d -b crash" | tail -120
-            echo "--- process state ---"
-            adb shell pidof com.tharunbirla.librecuts || echo "not running"
-            exit $MONKEY_EXIT
+          script: bash "$GITHUB_WORKSPACE/stress.sh"
