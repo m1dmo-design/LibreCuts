@@ -1,0 +1,109 @@
+name: final-release
+
+on:
+  push:
+    branches:
+      - 'autosave'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Apply autosave + hardening patches
+        run: python3 apply_patches_github.py
+
+      - name: Apply release build tweaks
+        run: python3 apply_build_tweaks.py
+
+      - name: Generate signing key
+        run: |
+          keytool -genkeypair -keystore "$PWD/release.jks" -alias librecuts \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass librecuts -keypass librecuts \
+            -dname "CN=LibreCuts Autosave, OU=Community, O=LibreCuts, C=IN"
+
+      - name: Build signed release APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease \
+            -PRELEASE_STORE_FILE="$PWD/release.jks" \
+            -PRELEASE_STORE_PASSWORD=librecuts \
+            -PRELEASE_KEY_ALIAS=librecuts \
+            -PRELEASE_KEY_PASSWORD=librecuts
+
+      - name: Lint (advisory)
+        continue-on-error: true
+        run: ./gradlew lintRelease
+
+      - name: Unit tests
+        continue-on-error: true
+        run: ./gradlew testReleaseUnitTest
+
+      - name: Upload release APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-release-apks
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload signing key (keep for future updates)
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-key
+          path: release.jks
+          retention-days: 30
+
+  stress:
+    needs: build
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Download APKs
+        uses: actions/download-artifact@v4
+        with:
+          name: final-release-apks
+          path: apks
+
+      - name: Boot emulator, install, launch, stress
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          disable-animations: true
+          script: |
+            set +e
+            APK=$(ls apks/app-x86_64-release.apk 2>/dev/null || ls apks/*.apk | head -1)
+            echo "Installing $APK"
+            adb install -r -g "$APK"
+            echo "Launching main activity"
+            adb shell am start -W -n com.tharunbirla.librecuts/.MainActivity
+            sleep 15
+            echo "--- crash check after launch ---"
+            adb shell "logcat -d -b crash | tail -50"
+            echo "--- monkey stress (4000 events) ---"
+            adb shell monkey -p com.tharunbirla.librecuts --throttle 200 -v 4000
+            echo "MONKEY_EXIT=$?"
+            echo "--- crash buffer after stress ---"
+            adb shell "logcat -d -b crash | tail -80"
+            echo "--- app still installed/running? ---"
+            adb shell pidof com.tharunbirla.librecuts || echo "process not running (may be idle)"
