@@ -6,7 +6,6 @@ import android.util.Log
 import com.antonkarpenko.ffmpegkit.FFmpegKit
 import com.antonkarpenko.ffmpegkit.FFmpegKitConfig
 import com.antonkarpenko.ffmpegkit.FFmpegSession
-import com.antonkarpenko.ffmpegkit.Log
 import com.antonkarpenko.ffmpegkit.Statistics
 import com.tharunbirla.librecuts.models.MediaAnalysis
 import com.tharunbirla.librecuts.models.TimeRange
@@ -66,7 +65,7 @@ object MediaAnalyzer {
                     catch (e: Exception) { Log.w(TAG, "parse failed: ${e.message}"); MediaAnalysis() }
                     onComplete(analysis)
                 },
-                { log: Log -> buffer.append(log.message ?: "").append('\n') },
+                { log: com.antonkarpenko.ffmpegkit.Log -> buffer.append(log.message ?: "").append('\n') },
                 { _: Statistics -> }
             )
         } catch (e: Exception) {
